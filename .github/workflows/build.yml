@@ -425,7 +425,7 @@ jobs:
           - **ZRAM (LZ4):** ${{ inputs.use_zram }}
           - **KPM:** ${{ inputs.use_kpm }}
           - **TMPFS:** ${{ inputs.enable_tmpfs }}
-          - **UNICODE　BYPASS:** ${{ bypass_unicode }}
+          - **UNICODE　BYPASS:** ${{ inputs.bypass_unicode }}
           
           _Built by Github Actions (Run #${{ github.run_number }})_
           EOF
