@@ -1,4 +1,4 @@
-name: Build GKI A12-5.10 (Fix Paths)
+name: Build GKI A12-5.10 (Fix Missing Files)
 
 permissions:
   contents: write
@@ -7,7 +7,6 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      # 1. 核心功能：版本选择器
       tag_selection:
         description: "选择内核版本 (格式: 子版本 | 补丁日期 | 修订号)"
         required: true
@@ -20,25 +19,21 @@ on:
           - "Manual Input (See below)"
         default: "5.10.233 | 2025-02 | r5"
       
-      # 2. 手动版本覆盖
       manual_version:
         description: "手动版本参数 (仅 Manual 模式生效, 格式: 5.10.233 2025-02 r5)"
         required: false
         type: string
       
-      # 3. 自定义版本名后缀
       version:
         description: '自定义版本名 (如 -MyKernel)'
         required: false
         type: string
       
-      # 4. 构建时间
       build_time:
         description: '设置内核构建时间 (留空使用当前时间)'
         required: false
         type: string
 
-      # 其他功能开关
       kernelsu_variant:
         description: "选择 KernelSU 变体"
         required: true
@@ -158,8 +153,6 @@ jobs:
       - name: 克隆辅助仓库
         run: |
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "gki-2.0"
-          
-          # [关键修复] 克隆 SukiSU_patch (用于 lz4kd) 和 zzh_patch (用于 lz4_1.10)
           git clone https://github.com/ShirkNeko/SukiSU_patch.git
           git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch
           git clone https://github.com/Numbersf/Action-Build.git --depth=1
@@ -231,21 +224,32 @@ jobs:
           cd common
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
 
-      - name: 注入 ZRAM/BBG 补丁 (Path Fixed)
+      # ========================================================
+      # [核心修复] 注入 ZRAM/BBG 补丁 (补全了复制源代码的命令)
+      # ========================================================
+      - name: 注入 ZRAM/BBG 补丁
         run: |
           cd "$CONFIG/common"
           patch -p1 --forward < "../../Action-Build/patches/optimized_mem_operations.patch"
           patch -p1 --forward < "../../Action-Build/patches/file_struct_8bytes_align.patch"
           
           if [ "${{ inputs.use_zram }}" == "true" ]; then
-            # LZ4 1.10.0 (From zzh_patch)
+            echo "Processing ZRAM/LZ4K..."
+            # 1. [修复] 复制 LZ4K 和 OPlus 源代码
+            # 这些文件对于 lz4kd.patch 生效是必须的
+            cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
+            cp -r ../../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
+            cp -r ../../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
+            cp -r ../../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+
+            # 2. 应用 LZ4 1.10.0 (From zzh_patch)
             rm -f lib/lz4/*
             cp -r ../../zzh_patch/zram/lz4/* ./lib/lz4/
             cp -r ../../zzh_patch/zram/include/linux/* ./include/linux/
             cp ../../zzh_patch/zram/${{ env.KERNEL_VERSION }}/lz4_1.10.0.patch ./
             patch -p1 -F 3 --fuzz=5 < lz4_1.10.0.patch || true
             
-            # [修复] LZ4KD & OPlus (From SukiSU_patch)
+            # 3. 应用 LZ4KD & OPlus patches
             cp ../../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
             patch -p1 -F 3 < lz4kd.patch || true
             
