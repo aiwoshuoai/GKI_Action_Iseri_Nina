@@ -56,7 +56,7 @@ on:
           - tmp-builtin
         default: Stable(标准)
       use_zram:
-        description: '开启 ZRAM 优化 (LZ4)?'
+        description: '开启更多zram算法?'
         required: true
         type: boolean
         default: true
