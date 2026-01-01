@@ -366,7 +366,10 @@ jobs:
            cp ../$CONFIG/out/${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}/dist/Image ./
            ZIP_NAME="GKI-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip"
            zip -r "$ZIP_NAME" ./*
-           echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV
+           
+           # 移动到工作区根目录
+           mv "$ZIP_NAME" ../
+           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: 编译 Boot.img
         if: ${{ inputs.onlyAk3 == false }}
@@ -400,5 +403,6 @@ jobs:
         with:
           name: Kernel-${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}
           path: |
-            ${{ env.ZIP_PATH }}
+            ${{ env.ZIP_NAME }}
             *.img
+
