@@ -7,16 +7,36 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      kernelsu_variant:
-        description: "选择 KernelSU"
+      # 核心功能：版本选择器
+      tag_selection:
+        description: "选择内核版本 (格式: 子版本 | 补丁日期 | 修订号)"
         required: true
         type: choice
         options:
-          - SukiSU
+          - "5.10.233 | 2025-02 | r5"
+          - "5.10.226 | 2024-11 | r8"
+          - "5.10.218 | 2024-08 | r14"
+          - "5.10.209 | 2024-05 | r13"
+          - "5.10.198 | 2024-01 | r17"
+          - "Manual Input (See below)"
+        default: "5.10.233 | 2025-02 | r5"
+      
+      # 手动输入覆盖（可选）
+      manual_version:
+        description: "手动输入(仅当上方选Manual时生效, 格式: 5.10.xxx 20xx-xx rxx)"
+        required: false
+        type: string
+
+      kernelsu_variant:
+        description: "选择 KernelSU 变体"
+        required: true
+        type: choice
+        options:
           - ReSukiSU
+          - SukiSU
           - Official
           - MKSU
-        default: SukiSU
+        default: ReSukiSU
       kernelsu_branch:
         description: "选择 ksu 分支"
         required: true
@@ -25,43 +45,29 @@ on:
           - Stable(标准)
           - Dev(开发)
           - tmp-builtin
-          - Other(其他/指定)
         default: Stable(标准)
-      version:
-        description: '自定义版本名(如5.10.198后面的字符/留空则使用默认版本号)'
-        required: false
-        type: string
-      build_time:
-        description: '设置内核构建时间(格式见仓库说明)'
-        required: false
-        type: string
       use_zram:
-        description: '是否开启增加更多ZRAM算法?'
+        description: '开启 ZRAM 优化 (LZ4)?'
         required: true
         type: boolean
         default: true
       use_bbg:
-        description: '是否开启BBG防格机补丁?（报错请关闭）'
+        description: '开启 BBG 防格机?'
         required: true
         type: boolean
         default: true
       use_kpm:
-        description: '是否开启KPM功能?'
+        description: '开启 KPM?'
         required: true
         type: boolean
         default: true
       cancel_susfs:
-        description: '取消susfs'
+        description: '取消 SUSFS'
         required: true
         type: boolean
         default: false
-      get_manager:
-        description: '获取最新KSU管理器和SUS模块?'
-        required: true
-        type: boolean
-        default: true
       onlyAk3:
-        description: '仅上传AK3压缩包?(无boot,下载更快)'
+        description: '仅上传 AK3 (不打包 boot.img)?'
         required: false
         type: boolean
         default: false
@@ -70,11 +76,8 @@ jobs:
   build-kernel:
     runs-on: ubuntu-latest
     env:
-      # 这里锁定为 A12 5.10 的最新稳定配置，避免矩阵构建
       ANDROID_VERSION: "android12"
       KERNEL_VERSION: "5.10"
-      SUB_LEVEL: "226"
-      OS_PATCH_LEVEL: "2024-11"
       CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
       CCACHE_NOHASHDIR: "true"
       CCACHE_HARDLINK: "true"
@@ -87,318 +90,121 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
-          remove-docker-images: 'true'
           verbose: 'false'
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ========================================================
+      # 核心步骤：解析用户选择的版本
+      # ========================================================
+      - name: 解析版本参数
+        run: |
+          # 获取输入
+          SELECTION="${{ inputs.tag_selection }}"
+          MANUAL="${{ inputs.manual_version }}"
+          
+          # 判断是否使用手动输入
+          if [[ "$SELECTION" == "Manual Input"* ]] && [[ -n "$MANUAL" ]]; then
+            echo "使用手动输入的版本: $MANUAL"
+            # 假设手动格式为空格分隔: 5.10.233 2025-02 r5
+            SUB_LEVEL=$(echo "$MANUAL" | awk '{print $1}' | cut -d. -f3)
+            OS_PATCH=$(echo "$MANUAL" | awk '{print $2}')
+            REV=$(echo "$MANUAL" | awk '{print $3}')
+          else
+            echo "使用预设版本: $SELECTION"
+            # 预设格式: "5.10.233 | 2025-02 | r5"
+            # awk $1=5.10.233, $3=2025-02, $5=r5 (因为 | 也是分隔符)
+            SUB_LEVEL=$(echo "$SELECTION" | awk -F' | ' '{print $1}' | cut -d. -f3)
+            # 处理 awk 分割可能存在的空格问题，这里使用更稳健的 cut
+            # 原始串: 5.10.233 | 2025-02 | r5
+            OS_PATCH=$(echo "$SELECTION" | cut -d'|' -f2 | xargs) # xargs 去除首尾空格
+            REV=$(echo "$SELECTION" | cut -d'|' -f3 | xargs)
+          fi
+
+          echo "解析结果:"
+          echo "  Sub Level: $SUB_LEVEL"
+          echo "  Patch: $OS_PATCH"
+          echo "  Revision: $REV"
+
+          # 写入环境变量供后续步骤使用
+          echo "SUB_LEVEL=$SUB_LEVEL" >> $GITHUB_ENV
+          echo "OS_PATCH_LEVEL=$OS_PATCH" >> $GITHUB_ENV
+          echo "REVISION=$REV" >> $GITHUB_ENV
+          echo "CONFIG=android12-5.10-$SUB_LEVEL" >> $GITHUB_ENV
+
       - name: 安装构建依赖
         run: sudo apt update && sudo apt install -y ccache python3 git curl build-essential libssl-dev bison flex libelf-dev dwarves
 
-      - name: 设置环境变量与配置
-        run: |
-          echo "CONFIG=${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}-${{ env.SUB_LEVEL }}" >> $GITHUB_ENV
-          
-          # Git 配置
-          git config --global user.name "Github-Action"
-          git config --global user.email "action@github.com"
-
       - name: 下载工具链
         run: |
-          # 下载 Repo
           mkdir -p ./git-repo
           curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
           chmod a+rx ./git-repo/repo
           echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV
           
-          # 下载构建工具
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-build-2024
           git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
           git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg
-
+          
           echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
-
-          # 生成签名密钥
+          
+          # 生成签名Key
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
 
       - name: 克隆辅助仓库
         run: |
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "gki-2.0"
-          git clone https://github.com/WildPlusKernel/kernel_patches.git
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
           git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch
           git clone https://github.com/Numbersf/Action-Build.git --depth=1
-
-          # 根据 Variant 选择 SUSFS 仓库
+          
+          # 选择 SUSFS 仓库
           if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] || [ "${{ inputs.kernelsu_variant }}" == "ReSukiSU" ]; then
             git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
           else
             git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}"
           fi
 
-      - name: 初始化内核源码
+      - name: 同步内核源码
         run: |
           mkdir -p "$CONFIG"
           cd "$CONFIG"
-          
-          # GCC (用于辅助)
           git clone https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-gnu-6.4.1.git gcc
 
-          # Sync Source
-          echo "Syncing Kernel Source..."
+          # 构建 Manifest 分支名
+          # 格式通常为: common-android12-5.10-YYYY-MM
           MANIFEST_BRANCH="common-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}-${{ env.OS_PATCH_LEVEL }}"
+          
+          echo "正在同步分支: $MANIFEST_BRANCH"
+          
+          # 初始化 (移除 --no-tags 以修复版本号生成)
           $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b $MANIFEST_BRANCH --repo-rev=v2.16
-          $REPO sync -c -j$(nproc --all) --no-tags --fail-fast
+          
+          # 如果同步失败(比如Google还没发布这个月的Tag)，尝试回退到通用的 android12-5.10 分支
+          if ! $REPO sync -c -j$(nproc --all) --fail-fast; then
+             echo "错误: 无法同步分支 $MANIFEST_BRANCH，尝试同步通用分支..."
+             $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+             $REPO sync -c -j$(nproc --all) --fail-fast
+          fi
 
-      - name: 确定 KernelSU 分支参数
+      - name: 确定 KernelSU 参数
         run: |
-          branch_input="${{ inputs.kernelsu_branch }}"
-          variant_input="${{ inputs.kernelsu_variant }}"
+          VAR="${{ inputs.kernelsu_variant }}"
+          BR="${{ inputs.kernelsu_branch }}"
+          ARG=""
           
-          # 默认参数
-          BRANCH_ARG=""
-
-          case "$branch_input" in
-            "Stable(标准)")
-               if [[ "$variant_input" == "SukiSU" || "$variant_input" == "ReSukiSU" ]]; then
-                 BRANCH_ARG="-s builtin"
-               else
-                 BRANCH_ARG="-s stable"
-               fi
-               ;;
-            "Dev(开发)")
-               if [[ "$variant_input" == "SukiSU" || "$variant_input" == "ReSukiSU" ]]; then
-                 BRANCH_ARG="-s tmp-builtin"
-               else
-                 BRANCH_ARG="-s main"
-               fi
-               ;;
-            "tmp-builtin")
-               # 新增的 tmp-builtin 选项处理
-               BRANCH_ARG="-s tmp-builtin"
-               ;;
-            *)
-               BRANCH_ARG=""
-               ;;
-          esac
-          
-          echo "KSU_BRANCH_ARG=$BRANCH_ARG" >> $GITHUB_ENV
-
-      - name: 注入 KernelSU (包含 ReSukiSU)
-        run: |
-          cd "$CONFIG"
-          echo "Installing KernelSU (${{ inputs.kernelsu_variant }})..."
-
-          if [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s $KSU_BRANCH_ARG
-          elif [ "${{ inputs.kernelsu_variant }}" == "ReSukiSU" ]; then
-            # ReSukiSU 逻辑
-            echo "Using ReSukiSU setup script..."
-            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s $KSU_BRANCH_ARG
-          elif [ "${{ inputs.kernelsu_variant }}" == "MKSU" ]; then
-            curl -LSs "https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" | bash -s $KSU_BRANCH_ARG
-          elif [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ]; then
-            curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s $KSU_BRANCH_ARG
-          fi
-
-      - name: 注入 SUSFS 补丁
-        if: ${{ !inputs.cancel_susfs }}
-        run: |
-          cd "$CONFIG"
-          echo "Applying SUSFS..."
-          
-          # 复制通用补丁
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-
-          # 为 KernelSU 内部打补丁
-          # 注意：ReSukiSU 的文件夹名可能是 KernelSU 也可能是其他，通常 setup.sh 会建立 KernelSU 软链或目录
-          # 这里假设 setup.sh 生成的目录名为 KernelSU (大部分变体都是这样)
-          if [ -d "KernelSU" ]; then
-            cd KernelSU
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-            patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
-            cd ..
+          if [ "$BR" == "tmp-builtin" ]; then
+             ARG="-s tmp-builtin"
+          elif [ "$BR" == "Stable(标准)" ]; then
+             if [[ "$VAR" == "SukiSU" || "$VAR" == "ReSukiSU" ]]; then ARG="-s builtin"; else ARG="-s stable"; fi
+          elif [ "$BR" == "Dev(开发)" ]; then
+             if [[ "$VAR" == "SukiSU" || "$VAR" == "ReSukiSU" ]]; then ARG="-s tmp-builtin"; else ARG="-s main"; fi
           fi
           
-          # 应用 Kernel 源码补丁
-          cd common
-          patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
+          echo "KSU_ARGS=$ARG" >> $GITHUB_ENV
 
-      - name: 注入通用优化补丁 (ZRAM/BBG等)
-        run: |
-          cd "$CONFIG/common"
-          
-          # 1. 内存优化
-          patch -p1 --forward < "../../Action-Build/patches/optimized_mem_operations.patch"
-          patch -p1 --forward < "../../Action-Build/patches/file_struct_8bytes_align.patch"
-          
-          # 2. ZRAM LZ4 升级 (如果开启)
-          if [ "${{ inputs.use_zram }}" == "true" ]; then
-            echo "Upgrading LZ4..."
-            rm -f lib/lz4/*
-            cp -r ../../zzh_patch/zram/lz4/* ./lib/lz4/
-            cp -r ../../zzh_patch/zram/include/linux/* ./include/linux/
-            cp ../../zzh_patch/zram/${{ env.KERNEL_VERSION }}/lz4_1.10.0.patch ./
-            patch -p1 -F 3 --fuzz=5 < lz4_1.10.0.patch || true
-            
-            # 应用 LZ4KD & Oplus 补丁
-            cp ../../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
-            patch -p1 -F 3 < lz4kd.patch || true
-          fi
-          
-          # 3. BBG 防格机 (如果开启)
-          if [ "${{ inputs.use_bbg }}" == "true" ]; then
-            cd .. # 回到根目录
-            wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
-            # 修改 Kconfig 默认值
-            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' common/security/Kconfig
-          fi
-
-      - name: 配置 Defconfig
-        run: |
-          cd "$CONFIG"
-          DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
-          
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          
-          if [ "${{ inputs.kernelsu_variant }}" == "SukiSU" ] || [ "${{ inputs.kernelsu_variant }}" == "ReSukiSU" ]; then
-             if [ "${{ inputs.use_kpm }}" == "true" ]; then
-               echo "CONFIG_KPM=y" >> $DEFCONFIG
-             fi
-          fi
-          
-          # ZRAM 配置
-          if [ "${{ inputs.use_zram }}" == "true" ]; then
-             echo "CONFIG_ZSMALLOC=y" >> $DEFCONFIG
-             echo "CONFIG_ZRAM=y" >> $DEFCONFIG
-             echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> $DEFCONFIG
-             echo "CONFIG_CRYPTO_LZ4K=y" >> $DEFCONFIG
-             echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> $DEFCONFIG
-          fi
-          
-          # BBG 配置
-          if [ "${{ inputs.use_bbg }}" == "true" ]; then
-             echo "CONFIG_BBG=y" >> $DEFCONFIG
-          fi
-          
-          # SUSFS 配置
-          if [ "${{ inputs.cancel_susfs }}" == "false" ]; then
-             echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> $DEFCONFIG
-          fi
-
-          # 去除 check_defconfig 防止报错
-          sed -i 's/check_defconfig//' common/build.config.gki
-
-      - name: 设置构建时间与版本
-        run: |
-          cd "$CONFIG"
-          if [ ! -z "${{ inputs.build_time }}" ]; then
-            PERL_TIME="${{ inputs.build_time }}"
-            perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $PERL_TIME\"}" ./common/scripts/mkcompile_h
-          fi
-          
-          if [ ! -z "${{ inputs.version }}" ]; then
-             sed -i '/^CONFIG_LOCALVERSION=/ s/="\([^"]*\)"/="${{ inputs.version }}"/' common/arch/arm64/configs/gki_defconfig
-          fi
-
-      - name: 开始编译
-        run: |
-          cd "$CONFIG"
-          sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-          sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
-          sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
-          
-          echo "Building Kernel..."
-          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
-
-      - name: KPM Patch (针对 Image)
-        if: ${{ inputs.use_kpm && (inputs.kernelsu_variant == 'SukiSU' || inputs.kernelsu_variant == 'ReSukiSU') }}
-        run: |
-           cd "$CONFIG/out/${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}/dist"
-           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
-           chmod 777 patch
-           ./patch
-           rm -rf Image
-           mv oImage Image
-
-      - name: 打包 AnyKernel3
-        run: |
-           cd AnyKernel3
-           cp ../$CONFIG/out/${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}/dist/Image ./
-           
-           ZIP_NAME="GKI-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}-${{ inputs.kernelsu_variant }}.zip"
-           if [ "${{ inputs.onlyAk3 }}" == "false" ]; then
-              zip -r "$ZIP_NAME" ./*
-              echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV
-           else
-              # 如果只要 AK3，也先打包好
-              zip -r "$ZIP_NAME" ./*
-              echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV
-           fi
-
-      - name: 编译 Boot.img (如果不只是 AK3)
-        if: ${{ inputs.onlyAk3 == false }}
-        run: |
-          cd "$CONFIG"
-          mkdir bootimgs
-          cp out/${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}/dist/Image ./bootimgs/
-          cd bootimgs
-          
-          # 下载官方 Boot
-          GKI_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-${{ env.OS_PATCH_LEVEL }}_r1.zip
-          FALLBACK_URL=https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
-          
-          if curl --output /dev/null --silent --head --fail "$GKI_URL"; then
-             curl -Lo gki-kernel.zip "$GKI_URL"
-          else
-             curl -Lo gki-kernel.zip "$FALLBACK_URL"
-          fi
-          
-          unzip gki-kernel.zip
-          $UNPACK_BOOTIMG --boot_img=boot-5.10.img
-          
-          # 重新打包
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-new.img --ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level "${{ env.OS_PATCH_LEVEL }}"
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-new.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
-          
-          mv boot-new.img $GITHUB_WORKSPACE/boot.img
-
-      - name: 获取 KSU 管理器
-        if: ${{ inputs.get_manager }}
-        uses: dsaltares/fetch-gh-release-asset@master
-        with:
-          repo: "tiann/KernelSU"
-          version: "tags/v0.9.5" # 示例版本，可根据需要修改或写脚本抓取最新
-          file: "KernelSU_v0.9.5_11210_release.apk"
-          target: "Manager.apk"
-          token: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: 上传产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: Kernel-Build-Result
-          path: |
-            ${{ env.ZIP_PATH }}
-            *.img
-            Manager.apk
+      - name: 注入 Kernel
