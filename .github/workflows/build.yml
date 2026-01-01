@@ -68,6 +68,11 @@ on:
         required: true
         type: boolean
         default: true
+      enable_tmpfs:
+       description: '启用tmpfs?'
+        required: true
+        type: boolean
+        default: true
       cancel_susfs:
         description: '取消 SUSFS'
         required: true
@@ -280,6 +285,10 @@ jobs:
              echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> $DEFCONFIG
           fi
           if [ "${{ inputs.use_bbg }}" == "true" ]; then echo "CONFIG_BBG=y" >> $DEFCONFIG; fi
+          if [ "${{ inputs.enable_tmpfs }}" == "true" ]; then 
+             echo "CONFIG_TMPFS_XATTR=y" >> $DEFCONFIG
+             echo "CONFIG_TMPFS_POSIX_ACL=y" >> $DEFCONFIG
+          fi
           if [ "${{ inputs.cancel_susfs }}" == "false" ]; then
              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
              echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
