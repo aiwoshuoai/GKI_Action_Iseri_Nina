@@ -403,3 +403,35 @@ jobs:
             ${{ env.ZIP_PATH }}
             *.img
 
+      - name: 保存 Release 元数据
+        run: |
+          mkdir -p release_info
+          
+          # 生成 Tag 名字
+          echo "v${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}_${{ github.run_number }}" > release_info/tag_name.txt
+          
+          # 生成 Release 标题
+          echo "Android 12 GKI ${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }} (${{ env.OS_PATCH_LEVEL }})" > release_info/release_title.txt
+          
+          # 生成 Release 说明正文
+          cat <<EOF > release_info/release_body.md
+          ### GKI Kernel Build Info
+          - **Kernel Version:** 5.10.${{ env.SUB_LEVEL }}
+          - **Android Security Patch:** ${{ env.OS_PATCH_LEVEL }}
+          - **Revision:** ${{ env.REVISION }}
+          - **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
+          - **KSU Branch:** ${{ inputs.kernelsu_branch }}
+          - **SUSFS:** ${{ inputs.cancel_susfs == 'false' && 'Enabled' || 'Disabled' }}
+          - **ZRAM (LZ4):** ${{ inputs.use_zram }}
+          - **KPM:** ${{ inputs.use_kpm }}
+          - **TMPFS:** ${{ inputs.enable_tmpfs }}
+          - **UNICODE　BYPASS:** ${{ bypass_unicode }}
+          
+          _Built by Github Actions (Run #${{ github.run_number }})_
+          EOF
+
+      - name: 上传元数据
+        uses: actions/upload-artifact@v4
+        with:
+          name: release_metadata
+          path: release_info/
