@@ -227,13 +227,13 @@ jobs:
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
 
-          KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -n 1)
-          if [ -n "$KSU_DIR" ]; then
-            cd "$KSU_DIR"
-            cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-            patch -p1 --fuzz=3 --forward < 10_enable_susfs_for_ksu.patch || echo "KSU Patch warning"
-            cd ..
-          fi
+          #KSU_DIR=$(find . -maxdepth 1 -type d -name "KernelSU*" | head -n 1)
+          #if [ -n "$KSU_DIR" ]; then
+          #  cd "$KSU_DIR"
+          #  cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+          #  patch -p1 --fuzz=3 --forward < 10_enable_susfs_for_ksu.patch || echo "KSU Patch warning"
+          #  cd ..
+          #fi
           cd common
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
 
