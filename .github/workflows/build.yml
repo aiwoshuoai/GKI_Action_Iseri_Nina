@@ -368,7 +368,7 @@ jobs:
            zip -r "$ZIP_NAME" ./*
            
            # 移动到工作区根目录
-           mv "$ZIP_NAME" ../
+           zip -r "../$ZIP_NAME" ./*
            echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: 编译 Boot.img
@@ -401,8 +401,8 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}
+          name: "GKI-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip"
           path: |
-            ${{ env.ZIP_NAME }}
+            ${{ github.workspace }}/GKI-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip
             *.img
 
