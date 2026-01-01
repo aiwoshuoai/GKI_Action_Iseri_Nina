@@ -1,4 +1,4 @@
-name: Build GKI A12-5.10 (Select Version)
+name: Build GKI A12-5.10 (Fix Paths)
 
 permissions:
   contents: write
@@ -7,7 +7,7 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      # 1. 核心功能：版本选择器 (包含 sub_level, patch, revision)
+      # 1. 核心功能：版本选择器
       tag_selection:
         description: "选择内核版本 (格式: 子版本 | 补丁日期 | 修订号)"
         required: true
@@ -20,19 +20,19 @@ on:
           - "Manual Input (See below)"
         default: "5.10.233 | 2025-02 | r5"
       
-      # 2. 手动版本覆盖 (如果上面选了 Manual Input)
+      # 2. 手动版本覆盖
       manual_version:
         description: "手动版本参数 (仅 Manual 模式生效, 格式: 5.10.233 2025-02 r5)"
         required: false
         type: string
       
-      # 3. [已恢复] 自定义版本名后缀
+      # 3. 自定义版本名后缀
       version:
         description: '自定义版本名 (如 -MyKernel)'
         required: false
         type: string
       
-      # 4. [已恢复] 构建时间
+      # 4. 构建时间
       build_time:
         description: '设置内核构建时间 (留空使用当前时间)'
         required: false
@@ -108,7 +108,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ========================================================
-      # 解析版本参数 (Sublevel 由此步骤决定)
+      # 解析版本参数
       # ========================================================
       - name: 解析版本参数
         run: |
@@ -117,13 +117,11 @@ jobs:
           
           if [[ "$SELECTION" == "Manual Input"* ]] && [[ -n "$MANUAL" ]]; then
             echo "使用手动输入的版本: $MANUAL"
-            # 格式: 5.10.233 2025-02 r5
             SUB_LEVEL=$(echo "$MANUAL" | awk '{print $1}' | cut -d. -f3)
             OS_PATCH=$(echo "$MANUAL" | awk '{print $2}')
             REV=$(echo "$MANUAL" | awk '{print $3}')
           else
             echo "使用预设版本: $SELECTION"
-            # 格式: 5.10.233 | 2025-02 | r5
             SUB_LEVEL=$(echo "$SELECTION" | awk -F' | ' '{print $1}' | cut -d. -f3)
             OS_PATCH=$(echo "$SELECTION" | cut -d'|' -f2 | xargs)
             REV=$(echo "$SELECTION" | cut -d'|' -f3 | xargs)
@@ -160,6 +158,9 @@ jobs:
       - name: 克隆辅助仓库
         run: |
           git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "gki-2.0"
+          
+          # [关键修复] 克隆 SukiSU_patch (用于 lz4kd) 和 zzh_patch (用于 lz4_1.10)
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git
           git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch
           git clone https://github.com/Numbersf/Action-Build.git --depth=1
           
@@ -230,20 +231,26 @@ jobs:
           cd common
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
 
-      - name: 注入 ZRAM/BBG 补丁
+      - name: 注入 ZRAM/BBG 补丁 (Path Fixed)
         run: |
           cd "$CONFIG/common"
           patch -p1 --forward < "../../Action-Build/patches/optimized_mem_operations.patch"
           patch -p1 --forward < "../../Action-Build/patches/file_struct_8bytes_align.patch"
           
           if [ "${{ inputs.use_zram }}" == "true" ]; then
+            # LZ4 1.10.0 (From zzh_patch)
             rm -f lib/lz4/*
             cp -r ../../zzh_patch/zram/lz4/* ./lib/lz4/
             cp -r ../../zzh_patch/zram/include/linux/* ./include/linux/
             cp ../../zzh_patch/zram/${{ env.KERNEL_VERSION }}/lz4_1.10.0.patch ./
             patch -p1 -F 3 --fuzz=5 < lz4_1.10.0.patch || true
-            cp ../../zzh_patch/zram/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
+            
+            # [修复] LZ4KD & OPlus (From SukiSU_patch)
+            cp ../../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
             patch -p1 -F 3 < lz4kd.patch || true
+            
+            cp ../../SukiSU_patch/other/zram/zram_patch/${{ env.KERNEL_VERSION }}/lz4k_oplus.patch ./
+            patch -p1 -F 3 < lz4k_oplus.patch || true
           fi
           
           if [ "${{ inputs.use_bbg }}" == "true" ]; then
@@ -286,20 +293,14 @@ jobs:
           fi
           sed -i 's/check_defconfig//g' common/build.config.gki*
 
-      # ========================================================
-      # [已恢复] 3. 应用构建时间和自定义版本名
-      # ========================================================
       - name: 设置构建时间与版本
         run: |
           cd "$CONFIG"
-          # 处理构建时间
           if [ -n "${{ inputs.build_time }}" ]; then
              echo "正在设置构建时间: ${{ inputs.build_time }}"
-             # 更新 mkcompile_h 脚本以固定时间
              perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT ${{ inputs.build_time }}\"}" ./common/scripts/mkcompile_h
           fi
           
-          # 处理自定义版本名 (Localversion)
           if [ -n "${{ inputs.version }}" ]; then
              echo "正在设置版本后缀: ${{ inputs.version }}"
              sed -i '/^CONFIG_LOCALVERSION=/ s/="\([^"]*\)"/="${{ inputs.version }}"/' common/arch/arm64/configs/gki_defconfig
