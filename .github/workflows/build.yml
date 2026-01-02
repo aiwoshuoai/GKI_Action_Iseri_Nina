@@ -80,14 +80,14 @@ on:
         required: true
         type: boolean
         default: true
-      cancel_susfs:
-        description: '取消 SUSFS'
-        required: true
-        type: boolean
-        default: false
       onlyAk3:
         description: '仅上传 AK3 (不打包 boot.img)?'
         required: false
+        type: boolean
+        default: true
+      cancel_susfs:
+        description: '取消 SUSFS'
+        required: true
         type: boolean
         default: false
 
