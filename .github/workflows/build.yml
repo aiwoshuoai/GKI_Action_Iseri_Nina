@@ -146,7 +146,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          # key 包含 SUB_LEVEL，确保不同内核版本不混用
           key: ccache-gki-${{ env.SUB_LEVEL }}-${{ github.run_id }}
           restore-keys: |
             ccache-gki-${{ env.SUB_LEVEL }}-
@@ -162,14 +161,11 @@ jobs:
           
           # 设置最大缓存 10G
           ccache -M 10G
-          
-          # 关键优化：sloppiness 忽略时间宏和文件路径差异
-          # 关键优化：compiler_check 内容检查比 mtime 更可靠
           ccache --set-config=sloppiness=time_macros,file_macro,include_file_ctime,include_file_mtime
           ccache --set-config=compiler_check=content
           ccache --set-config=compression=true
           
-          # 清零统计数据，方便看本次构建的效果
+          # 清零统计数据
           ccache -z
 
       - name: 下载工具链
@@ -382,8 +378,6 @@ jobs:
           export CCACHE_DIR=$HOME/.ccache
           export CCACHE_EXEC=/usr/bin/ccache
           
-          # CC="ccache clang" 这里的 clang 实际上是 path 中的 clang，即 Google prebuilts 的
-          # ccache 会拦截这个调用
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
           
           echo "Ccache 统计:"
