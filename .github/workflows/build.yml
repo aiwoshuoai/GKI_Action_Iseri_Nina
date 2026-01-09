@@ -265,8 +265,20 @@ jobs:
       - name: 注入 ZRAM/BBG 补丁
         run: |
           cd "$CONFIG/common"
-          patch -p1 --forward < "../../Action-Build/patches/optimized_mem_operations.patch"
-          patch -p1 --forward < "../../Action-Build/patches/file_struct_8bytes_align.patch"
+          
+          PATCH=../../Action-Build/patches/optimized_mem_operations.patch
+          if [ -f "$PATCH" ]; then
+          patch -p1 --forward < "$PATCH"
+          else
+          echo "Skip: $PATCH not found!"
+          fi
+          
+          PATCH=../../Action-Build/patches/file_struct_8bytes_align.patch
+          if [ -f "$PATCH" ]; then
+          patch -p1 --forward < "$PATCH"
+          else
+          echo "Skip: $PATCH not found!"
+          fi
           
           if [ "${{ inputs.use_zram }}" == "true" ]; then
             echo "Processing ZRAM/LZ4K..."
