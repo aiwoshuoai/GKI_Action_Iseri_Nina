@@ -57,7 +57,7 @@ jobs:
         run: |
          BUILD_DATE=$(TZ=Asia/Shanghai date +'%m-%d')
          echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
-
+         
       - name: Read Metadata
         run: |
          TAG_NAME_RAW=$(cat release_info/tag_name.txt)
@@ -67,12 +67,14 @@ jobs:
          OS_PATCH_LEVEL=$(echo "$TAG_NAME_RAW" | sed -E 's/^v[0-9.]+-([0-9]{4}-[0-9]{2}).*/\1/')
          SUFFIX=$(echo "$TAG_NAME_RAW" | sed -E 's/.*_//')
 
-         TAG_NAME="v${KERNEL_VERSION}-${OS_PATCH_LEVEL%??}_${BUILD_DATE}（${SUFFIX}）"
-         RELEASE_TITLE=$(echo "$RELEASE_TITLE_RAW" | sed -E "s/(${KERNEL_VERSION})/\1_${BUILD_DATE}/")
+         BUILD_DATE=$(TZ=Asia/Shanghai date +'%Y-%m-%d')
+
+         TAG_NAME="v${KERNEL_VERSION}-${BUILD_DATE}（${OS_PATCH_LEVEL}_${SUFFIX}）"
+         RELEASE_TITLE=$(echo "$RELEASE_TITLE_RAW" | sed -E "s/(${KERNEL_VERSION})/\1_${BUILD_DATE#2026-}/")
 
          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
          echo "RELEASE_TITLE=$RELEASE_TITLE" >> $GITHUB_ENV
-         
+    
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
