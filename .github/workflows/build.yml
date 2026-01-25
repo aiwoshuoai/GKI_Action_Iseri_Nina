@@ -263,18 +263,13 @@ jobs:
           patch -p1 --fuzz=3 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
 
       - name: 在取消SUSFS时启用manual_hook
-        if: ${{ inputs.cancel_susfs == 'true' }}
+        if: ${{ inputs.cancel_susfs }}
         run: |
           cd "$CONFIG/common"
-
+          echo "正在应用 Manual Hook 源码补丁..."
           cp ../../SukiSU_patch/hooks/hooks/scope_min_manual_hooks_v1.6.patch ./
           patch -p1 -F 3 --fuzz=5 < scope_min_manual_hooks_v1.6.patch || true
-          
-          if [ "${{ inputs.cancel_susfs }}" == "true" ]; then
-             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG
-          fi
-          
-          echo "已启用manual_hook"
+          echo "已启用 Manual Hook"
 
       - name: 注入 ZRAM/BBG 补丁
         run: |
@@ -363,6 +358,7 @@ jobs:
           fi
           
           if [ "${{ inputs.cancel_susfs }}" == "false" ]; then
+             # 没取消 SUSFS，则启用 SUSFS 配置
              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
              echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
@@ -376,6 +372,9 @@ jobs:
              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> $DEFCONFIG
              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> $DEFCONFIG
              echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> $DEFCONFIG
+          else
+             echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEFCONFIG
+             echo "已在 Defconfig 中启用 CONFIG_KSU_MANUAL_HOOK"
           fi
           
           if [[ "${{ inputs.resukisu_multi_manager }}" == "true" ]]; then
@@ -383,7 +382,6 @@ jobs:
           fi
           
           sed -i 's/check_defconfig//g' common/build.config.gki*
-
       - name: 设置构建时间与版本
         run: |
           cd "$CONFIG"
