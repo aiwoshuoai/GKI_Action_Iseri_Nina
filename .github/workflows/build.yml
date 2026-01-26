@@ -281,7 +281,7 @@ jobs:
           
           echo "正在执行 patch 命令..."
           
-          patch -p1 -F 3 --fuzz=5 < "$MY_PATCH" > patch_log.txt 2>&1
+          patch -p1 -F 3 --fuzz=5 < "$PATCH" > patch_log.txt 2>&1
           
           # 记录 patch 命令本身的退出代码
           PATCH_EXIT_CODE=$?
