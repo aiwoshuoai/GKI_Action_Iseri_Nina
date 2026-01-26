@@ -288,11 +288,15 @@ jobs:
           
           set -e
 
-          # 3. 显示完整日志
+          # 3显示完整日志
           echo "====================== PATCH OUTPUT START ======================"
-          cat patch_log.txt
+          if [ -f patch_log.txt ]; then
+              cat patch_log.txt
+          else
+              echo "无日志输出"
+          fi
           echo "====================== PATCH OUTPUT END   ======================"
-        
+          
           if [ $PATCH_EXIT_CODE -ne 0 ]; then
               echo "Patch 命令返回了错误代码 ($PATCH_EXIT_CODE)"
               exit 1
@@ -307,7 +311,7 @@ jobs:
               exit 1
           else
               echo "Manual Hook 补丁已成功应用"
-          fi 		
+          fi
           
       - name: 注入 ZRAM/BBG 补丁
         run: |
