@@ -459,7 +459,7 @@ jobs:
         run: |
            if [[ "${{ inputs.use_kpm }}" == "true" ]] && [[ "${{ inputs.kernelsu_variant }}" == *"SukiSU"* ]]; then
              cd "$CONFIG/out/${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}/dist"
-             curl -LSs "https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux" -o patch
+             curl -LSs "https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.0/patch_linux" -o patch
              chmod 777 patch
              ./patch
              rm -rf Image && mv oImage Image
