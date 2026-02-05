@@ -1,0 +1,562 @@
+name: Build GKI A14-6.1 (Bazel Full Version)
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+
+      tag_selection:
+        description: "选择内核版本 (格式: 6.1.xxx | 2025-02)"
+        required: true
+        type: choice
+        options:
+          - "6.1.118 | 2025-01"
+          - "6.1.124 | 2025-02"
+          - "6.1.128 | 2025-03"
+          - "6.1.129 | 2025-04"
+          - "6.1.134 | 2025-05"name
+          - "6.1.138 | 2025-06"
+          - "6.1.141 | 2025-07"
+          - "6.1.145 | 2025-08"
+          - "6.1.145 | 2025-09"
+          - "6.1.157 | 2025-12"
+          - "Manual Input"
+        default: "6.1.124 | 2025-02"
+
+      manual_version:
+        description: "手动输入格式：6.1.124 2025-02"
+        required: false
+        type: string
+
+      version:
+        description: "自定义内核版本名（例如 -MyKernel）"
+        required: false
+        type: string
+
+      kernelsu_variant:
+        description: "选择 KSU 变体"
+        required: true
+        type: choice
+        options:
+          - Official
+          - SukiSU
+          - ReSukiSU
+          - MKSU
+        default: ReSukiSU
+
+      kernelsu_branch:
+        description: "选择 KernelSU 分支"
+        required: true
+        type: choice
+        options:
+          - Stable
+          - Dev
+          - builtin
+        default: Stable
+
+      use_zram:
+        description: "启用 ZRAM (LZ4KD / Oplus / HC / LZ4K)"
+        required: true
+        type: boolean
+        default: true
+
+      use_bbg:
+        description: "启用 BasebandGuard (BBG)"
+        required: true
+        type: boolean
+        default: true
+
+      use_better_net:
+        description: "启用增强网络模块 (IPSET / BPF / IPv6 NAT)"
+        required: true
+        type: boolean
+        default: true
+
+      enable_tmpfs:
+        description: "启用 TMPFS XATTR 支持"
+        required: true
+        type: boolean
+        default: true
+
+      bypass_unicode:
+        description: "启用 Zero Width Unicode 绕过补丁"
+        required: true
+        type: boolean
+        default: true
+
+      cancel_susfs:
+        description: "取消 SUSFS（否则自动注入）"
+        required: true
+        type: boolean
+        default: false
+
+      onlyAk3:
+        description: "只打包 AK3 zip (不生成 boot.img)"
+        required: false
+        type: boolean
+        default: true
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_VERSION: "android14"
+      KERNEL_VERSION: "6.1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 解析版本参数
+        run: |
+          SELECTION="${{ inputs.tag_selection }}"
+          MANUAL="${{ inputs.manual_version }}"
+
+          if [[ "$SELECTION" == "Manual Input" ]]; then
+            # Manual Input Example: 6.1.124 2025-02
+            SUB_LEVEL=$(echo "$MANUAL" | awk '{print $1}' | cut -d. -f3)
+            PATCH_LEVEL=$(echo "$MANUAL" | awk '{print $2}')
+          else
+            SUB_LEVEL=$(echo "$SELECTION" | awk -F'|' '{print $1}' | xargs | cut -d. -f3)
+            PATCH_LEVEL=$(echo "$SELECTION" | awk -F'|' '{print $2}' | xargs)
+          fi
+
+          echo "SUB_LEVEL=$SUB_LEVEL" >> $GITHUB_ENV
+          echo "OS_PATCH_LEVEL=$PATCH_LEVEL" >> $GITHUB_ENV
+          echo "CONFIG=android14-6.1-$SUB_LEVEL" >> $GITHUB_ENV
+
+      - name: 安装构建依赖（包括 Bazelisk 环境）
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git curl python3 python-is-python3 \
+            build-essential libssl-dev \
+            libelf-dev dwarves \
+            bison flex lz4 jq unzip ccache
+
+      - name: 安装 Bazelisk（Google GKI 官方推荐）
+        run: |
+          sudo curl -Lo /usr/local/bin/bazel \
+            https://github.com/bazelbuild/bazelisk/releases/download/v1.19.0/bazelisk-linux-amd64
+          sudo chmod +x /usr/local/bin/bazel
+
+          echo "Bazel version:"
+          bazel version
+
+      - name: 安装 Repo 工具
+        run: |
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+rx ~/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: 初始化文件夹
+        run: |
+          mkdir -p $CONFIG
+          echo "Workspace created: $CONFIG"
+      - name: 同步 GKI 6.1 源码（Android 14，按月份精确匹配）
+        run: |
+          cd "$CONFIG"
+
+          MANIFEST_BRANCH="common-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}-${{ env.OS_PATCH_LEVEL }}"
+
+          echo "Using manifest branch: $MANIFEST_BRANCH"
+
+          # 初始化 repo（强制使用浅克隆）
+          repo init \
+            -u https://android.googlesource.com/kernel/manifest \
+            -b $MANIFEST_BRANCH \
+            --depth=1 \
+            --repo-rev=v2.37
+
+          # 开始同步 GKI 6.1 源码
+          if ! repo sync -c --no-tags --no-clone-bundle -j$(nproc); then
+            echo "❌ ERROR: Manifest $MANIFEST_BRANCH 不存在或同步失败"
+            echo "▶ 自动 fallback 至通用分支：common-android14-6.1"
+
+            repo init \
+              -u https://android.googlesource.com/kernel/manifest \
+              -b common-android14-6.1 \
+              --depth=1 \
+              --repo-rev=v2.37
+
+            repo sync -c --no-tags --no-clone-bundle -j$(nproc)
+          fi
+
+          echo "✔ GKI 6.1 source sync completed."
+      - name: 克隆 Patch 仓库 (AnyKernel3 / KSU / SUSFS / ZRAM / BBG / Fixes)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+
+          echo "=== Cloning AnyKernel3 ==="
+          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b gki-2.0
+
+          echo "=== Cloning SukiSU patch repository ==="
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git
+
+          echo "=== Cloning GKI KernelSU + SUSFS patch repository ==="
+          git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch
+
+          echo "=== Cloning Xiaomichael patch repo ==="
+          git clone https://github.com/Xiaomichael/kernel_patches.git xiaoxiaow_patch
+
+          echo "=== Cloning SUSFS 6.1 (gki-android14-6.1) ==="
+          git clone https://github.com/ShirkNeko/susfs4ksu.git -b gki-android14-6.1
+
+          echo "All patch repositories cloned."
+      - name: 注入 KernelSU
+        run: |
+          cd "$CONFIG"
+
+          VARIANT="${{ inputs.kernelsu_variant }}"
+          BRANCH="${{ inputs.kernelsu_branch }}"
+
+          echo "注入 KernelSU:"
+          echo " - Variant: $VARIANT"
+          echo " - Branch:  $BRANCH"
+
+          case "$VARIANT" in
+            "Official")
+              KSU_URL="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh"
+              ;;
+            "SukiSU")
+              KSU_URL="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh"
+              ;;
+            "ReSukiSU")
+              KSU_URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh"
+              ;;
+            "MKSU")
+              KSU_URL="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh"
+              ;;
+          esac
+
+          # 分支参数（Stable / Dev / builtin）
+          case "$BRANCH" in
+            "builtin")
+              KSU_ARG="-s builtin"
+              ;;
+            "Stable")
+              KSU_ARG="-s stable"
+              ;;
+            "Dev")
+              KSU_ARG="-s main"
+              ;;
+            *)
+              KSU_ARG="-s stable"
+              ;;
+          esac
+
+          echo "执行 KernelSU 注入脚本: $KSU_URL (Args: $KSU_ARG)"
+
+          curl -LSs "$KSU_URL" | bash -s $KSU_ARG
+
+          echo "✔ KernelSU 注入完成"
+      - name: 注入 SUSFS (gki-android14-6.1)
+        if: ${{ !inputs.cancel_susfs }}
+        run: |
+          echo "=== 注入 SUSFS (6.1) ==="
+          cd "$CONFIG/common"
+
+          # SUSFS patch（6.1 目录结构）
+          PATCH_6_1="../../susfs4ksu/kernel_patches/50_add_susfs_6.1.patch"
+
+          if [ ! -f "$PATCH_6_1" ]; then
+            echo "❌ 找不到 SUSFS 6.1 patch!"
+            exit 1
+          fi
+
+          patch -p1 < "$PATCH_6_1"
+
+          echo "✔ SUSFS 6.1 注入完成"
+      - name: 注入 ZRAM 补丁 (for 6.1)
+        if: ${{ inputs.use_zram }}
+        run: |
+          echo "=== 注入 ZRAM (6.1) ==="
+          cd "$CONFIG/common"
+
+          # 复制 6.1 专用 ZRAM 目录补丁
+          cp -r ../../SukiSU_patch/other/zram/6.1/* ./
+
+          # 注入 LZ4KD / Oplus 适配补丁
+          if [ -f ../../zzh_patch/zram/6.1/lz4kd_6.1.patch ]; then
+            patch -p1 < ../../zzh_patch/zram/6.1/lz4kd_6.1.patch || true
+          fi
+
+          echo "✔ ZRAM (LZ4KD / Oplus / HC / LZ4K) 注入完成"
+      - name: 注入 BasebandGuard (BBG)
+        if: ${{ inputs.use_bbg }}
+        run: |
+          echo "=== 注入 BBG BasebandGuard ==="
+          cd "$CONFIG"
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          echo "✔ BBG 注入完成"
+      - name: 注入 Unicode Zero-width 绕过补丁
+        if: ${{ inputs.bypass_unicode }}
+        run: |
+          echo "=== 注入 Zero-width Unicode Bypass patch ==="
+          cd "$CONFIG/common"
+
+          PATCH_U="../../xiaoxiaow_patch/common/unicode_bypass_6.1.patch"
+
+          if [ -f "$PATCH_U" ]; then
+            patch -p1 --fuzz=3 < "$PATCH_U" || true
+            echo "✔ 已应用 Zero-width Unicode 绕过补丁"
+          else
+            echo "⚠ unicode_bypass_6.1.patch 文件不存在，已跳过"
+          fi
+      - name: 注入 BetterNet 网络功能增强
+        if: ${{ inputs.use_better_net }}
+        run: |
+          echo "=== 注入 BetterNet (IPSET / IPv6 NAT / BPF) ==="
+          cd "$CONFIG/common"
+
+          DEF=arch/arm64/configs/gki_defconfig
+
+          echo "CONFIG_IP_SET=y" >> $DEF
+          echo "CONFIG_NETFILTER_XT_SET=y" >> $DEF
+          echo "CONFIG_IP6_NF_NAT=y" >> $DEF
+          echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> $DEF
+          echo "CONFIG_BPF_STREAM_PARSER=y" >> $DEF
+
+          echo "✔ BetterNet 配置完成"
+      - name: 启用 TMPFS XATTR
+        if: ${{ inputs.enable_tmpfs }}
+        run: |
+          echo "=== 启用 TMPFS XATTR ==="
+          cd "$CONFIG/common"
+
+          DEF=arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_XATTR=y" >> $DEF
+
+          echo "✔ TMPFS XATTR 已启用"
+      - name: 修改 GKI 6.1 defconfig（加入 KSU / SUSFS / ZRAM / BBG 等配置）
+        run: |
+          echo "=== 修改 defconfig（Android14 / GKI 6.1）==="
+          cd "$CONFIG/common"
+
+          DEF=arch/arm64/configs/gki_defconfig
+
+          echo "" >> $DEF
+          echo "# ===== KernelSU / ZRAM / SUSFS / BBG / BetterNet 自动配置 =====" >> $DEF
+
+          # KernelSU 主开关
+          echo "CONFIG_KSU=y" >> $DEF
+
+          # SUSFS
+          if [[ "${{ inputs.cancel_susfs }}" == "false" ]]; then
+            echo "CONFIG_KSU_SUSFS=y" >> $DEF
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEF
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEF
+          else
+            echo "CONFIG_KSU_MANUAL_HOOK=y" >> $DEF
+          fi
+
+          # ZRAM（6.1 新结构）
+          if [[ "${{ inputs.use_zram }}" == "true" ]]; then
+            echo "CONFIG_ZSMALLOC=y" >> $DEF
+            echo "CONFIG_ZRAM=y" >> $DEF
+            echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> $DEF
+            echo "CONFIG_CRYPTO_LZ4K=y" >> $DEF
+            echo "CONFIG_CRYPTO_LZ4HC=y" >> $DEF
+          fi
+
+          # BBG
+          if [[ "${{ inputs.use_bbg }}" == "true" ]]; then
+            echo "CONFIG_BBG=y" >> $DEF
+          fi
+
+          # BetterNet
+          if [[ "${{ inputs.use_better_net }}" == "true" ]]; then
+            echo "CONFIG_IP_SET=y" >> $DEF
+            echo "CONFIG_NETFILTER_XT_SET=y" >> $DEF
+            echo "CONFIG_IP6_NF_NAT=y" >> $DEF
+            echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> $DEF
+            echo "CONFIG_BPF_STREAM_PARSER=y" >> $DEF
+          fi
+
+          # TMPFS XATTR
+          if [[ "${{ inputs.enable_tmpfs }}" == "true" ]]; then
+            echo "CONFIG_TMPFS_XATTR=y" >> $DEF
+          fi
+
+          echo "✔ defconfig 修改完成"
+      - name: 配置 Bazel 环境变量（GKI 6.1 官方模式）
+        run: |
+          echo "=== 配置 Bazel 环境变量 ==="
+          echo "BAZEL_USE_CPP_ONLY_TOOLCHAIN=1" >> $GITHUB_ENV
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+          echo "USE_CCACHE=1" >> $GITHUB_ENV
+          echo "✔ Bazel 环境变量已设置"
+      - name: 使用 Bazel 构建 Kernel (GKI 6.1)
+        run: |
+          echo "=== 使用 Bazel 构建 Android14 / GKI 6.1 内核 ==="
+
+          cd "$CONFIG"
+
+          # Bazel 必须使用 hermetic gcc → Google 官方要求
+          export BAZEL_USE_CPP_ONLY_TOOLCHAIN=1
+          export CCACHE_DIR=$HOME/.ccache
+          export USE_CCACHE=1
+
+          echo "启动 Bazel 编译……"
+
+          # 主要构建目标：GKI ARM64 内核产物
+          bazel build \
+            --config=fast \
+            --config=distribution \
+            //common:kernel_aarch64_dist
+
+          echo "✔ Bazel build 完成"
+
+          # Bazel 输出目录
+          echo "Bazel 输出目录："
+          ls -al bazel-bin/common/kernel_aarch64_dist || true
+      - name: 将 Bazel 产物复制到 AnyKernel3
+        run: |
+          echo "=== 复制 Bazel 输出到 AnyKernel3 ==="
+
+          BAZEL_OUT="$CONFIG/bazel-bin/common/kernel_aarch64_dist"
+
+          if [ ! -f "$BAZEL_OUT/Image.lz4" ]; then
+            echo "❌ 找不到 Image.lz4！Bazel 构建可能失败"
+            exit 1
+          fi
+
+          cd "$GITHUB_WORKSPACE/AnyKernel3"
+
+          # Bazel 产物是 Image.lz4（GKI 6.1 官方格式）
+          cp "$BAZEL_OUT/Image.lz4" ./Image.lz4
+
+          # AK3 需要 Image.gz 或 Image
+          echo "=== 解压并转为 Image.gz ==="
+          lz4 -d Image.lz4 Image || true
+          gzip -f -9 Image
+
+          echo "✔ 已生成 Image.gz"
+      - name: 打包 AnyKernel3 ZIP
+        run: |
+          echo "=== 打包 AnyKernel3 ZIP ==="
+          cd "$GITHUB_WORKSPACE/AnyKernel3"
+
+          ZIP_NAME="GKI-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip"
+
+          zip -r "$ZIP_NAME" ./*
+
+          echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV
+
+          echo "✔ AnyKernel3 包构建完成：$ZIP_NAME"
+      - name: 使用 Bazel 输出制作 boot.img（可选）
+        if: ${{ inputs.onlyAk3 == false }}
+        run: |
+          echo "=== 开始制作 boot.img（onlyAk3 = false） ==="
+
+          cd "$CONFIG/bazel-bin/common/kernel_aarch64_dist"
+
+          # 确保 Image.lz4 存在
+          if [ ! -f Image.lz4 ]; then
+            echo "❌ Image.lz4 不存在，无法构建 boot.img"
+            exit 1
+          fi
+
+          # 解压 image
+          lz4 -d Image.lz4 Image || true
+          gzip -f -9 Image
+
+          # 下载 GKI 官方 boot 基础包
+          echo "=== 下载 GKI boot 认证包 ==="
+
+          GKI_BOOT="https://dl.google.com/android/gki/gki-certified-boot-android14-6.1-${{ env.OS_PATCH_LEVEL }}.zip"
+
+          if ! curl -I --silent "$GKI_BOOT" | grep -q "200"; then
+            echo "⚠ 未找到对应月份 boot 包，fallback 到 2024-12"
+            GKI_BOOT="https://dl.google.com/android/gki/gki-certified-boot-android14-6.1-2024-12.zip"
+          fi
+
+          curl -Lo gki_boot.zip "$GKI_BOOT"
+          unzip gki_boot.zip >/dev/null
+          rm gki_boot.zip
+
+          if [ ! -f boot.img ]; then
+            echo "❌ GKI boot.img 未找到，退出"
+            exit 1
+          fi
+
+          echo "=== 解包官方 boot.img ==="
+          $GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py --boot_img boot.img
+
+          # 制作新的 boot-new.img
+          echo "=== 制作 boot-new.img ==="
+          $GITHUB_WORKSPACE/mkbootimg/mkbootimg.py \
+            --header_version 4 \
+            --kernel Image.gz \
+            --ramdisk out/ramdisk \
+            --os_version 14.0.0 \
+            --os_patch_level ${{ env.OS_PATCH_LEVEL }} \
+            --output boot-new.img
+
+          echo "=== AVB 签名 ==="
+          $GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool \
+            add_hash_footer \
+            --partition_name boot \
+            --partition_size $((64 * 1024 * 1024)) \
+            --image boot-new.img \
+            --algorithm SHA256_RSA2048 \
+            --key $GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
+
+          mv boot-new.img "$GITHUB_WORKSPACE/boot.img"
+
+          echo "✔ boot.img 构建完成"
+      - name: 上传内核构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kernel_Build_Output
+          path: |
+            AnyKernel3/*.zip
+            ${{ github.workspace }}/boot.img
+            ${{ env.CONFIG }}/bazel-bin/common/kernel_aarch64_dist/Image.lz4
+            ${{ env.CONFIG }}/bazel-bin/common/kernel_aarch64_dist/Image
+            ${{ env.CONFIG }}/bazel-bin/common/kernel_aarch64_dist/Image.gz
+            ${{ env.CONFIG }}/bazel-bin/common/kernel_aarch64_dist/System.map
+            ${{ env.CONFIG }}/bazel-bin/common/kernel_aarch64_dist/vmlinux
+      - name: 保存 Release 信息
+        run: |
+          mkdir -p release_info
+
+          echo "v${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}_${{ github.run_number }}" \
+            > release_info/tag_name.txt
+
+          echo "Android 14 GKI ${{ env.KERNEL_VERSION }}.${{ env.SUB_LEVEL }} (${{ env.OS_PATCH_LEVEL }})" \
+            > release_info/release_title.txt
+
+          cat <<EOF > release_info/release_body.md
+          ### 📦 GKI Kernel Build Info
+
+          - **Kernel Version:** 6.1.${{ env.SUB_LEVEL }}
+          - **Android Security Patch:** ${{ env.OS_PATCH_LEVEL }}
+          - **KernelSU Variant:** ${{ inputs.kernelsu_variant }}
+          - **KernelSU Branch:** ${{ inputs.kernelsu_branch }}
+          - **ZRAM Enhancement:** ${{ inputs.use_zram }}
+          - **BetterNet:** ${{ inputs.use_better_net }}
+          - **SUSFS Enabled:** ${{ !inputs.cancel_susfs && 'Yes' || 'No' }}
+          - **BBG Enabled:** ${{ inputs.use_bbg }}
+
+          > 本构建由 GitHub Actions 自动生成  
+          > 构建系统：Android14 GKI 6.1（Bazel）
+          EOF
+      - name: 上传 Release 元数据
+        uses: actions/upload-artifact@v4
+        with:
+          name: release_metadata
+          path: release_info/
+      # === Workflow 主流程结束 ===
+      - name: 构建完成
+        run: |
+          echo "========================================"
+          echo "✔ Android 14 / GKI 6.1 Kernel Build 完成"
+          echo "✔ KernelSU: ${{ inputs.kernelsu_variant }} (${{ inputs.kernelsu_branch }})"
+          echo "✔ OS Patch Level: ${{ env.OS_PATCH_LEVEL }}"
+          echo "✔ 内核子版本: 6.1.${{ env.SUB_LEVEL }}"
+          echo "========================================"
