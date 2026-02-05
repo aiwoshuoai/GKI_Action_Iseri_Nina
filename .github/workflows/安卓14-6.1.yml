@@ -7,7 +7,6 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-
       tag_selection:
         description: "选择内核版本 (格式: 6.1.xxx | 2025-02)"
         required: true
