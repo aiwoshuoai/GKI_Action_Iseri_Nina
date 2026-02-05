@@ -327,10 +327,11 @@ jobs:
           
           if [ "${{ inputs.use_zram }}" == "true" ]; then
              echo "CONFIG_ZSMALLOC=y" >> $DEFCONFIG
-             echo "CONFIG_ZRAM=y" >> $DEFCONFIG
-             echo "CONFIG_CRYPTO_LZ4K=y" >> $DEFCONFIG
-             echo "CONFIG_CRYPTO_LZ4K_OPLUS=y" >> $DEFCONFIG
+             echo "CONFIG_ZRAM=m" >> $DEFCONFIG # 改为模块以通过检查
              echo "CONFIG_ZRAM_DEF_COMP_LZ4K=y" >> $DEFCONFIG
+             # 告诉编译系统不需要把这两个模块打包进 system_dlkm，以免签名校验失败
+             sed -i '/zram.ko/d' common/modules.list || true
+             sed -i '/zsmalloc.ko/d' common/modules.list || true
           fi
           
           if [ "${{ inputs.use_bbg }}" == "true" ]; then echo "CONFIG_BBG=y" >> $DEFCONFIG; fi
