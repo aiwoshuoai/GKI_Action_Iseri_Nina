@@ -1,4 +1,4 @@
-name: Build GKI A14-6.1
+name: Build GKI A14-6.1-Final
 
 permissions:
   contents: write
@@ -28,12 +28,12 @@ on:
         default: "6.1.157 | 2025-12"
       
       manual_version:
-        description: "手动版本参数 (仅 Manual 模式生效, 格式: 6.1.157 2025-12 r1)"
+        [span_3](start_span)description: "手动版本参数 (格式: 6.1.157 2025-12 r1)"[span_3](end_span)
         required: false
         type: string
       
       kernelsu_variant:
-        description: "选择 KernelSU 变体"
+        [span_4](start_span)description: "选择 KernelSU 变体"[span_4](end_span)
         required: true
         type: choice
         options:
@@ -44,7 +44,7 @@ on:
         default: ReSukiSU
 
       kernelsu_branch:
-        description: "选择 ksu 分支"
+        [span_5](start_span)description: "选择 ksu 分支"[span_5](end_span)
         required: true
         type: choice
         options:
@@ -54,7 +54,7 @@ on:
         default: Stable(标准)
 
       use_zram:
-        description: '启用 ZRAM 增强 (lz4k/oplus)'
+        [span_6](start_span)description: '开启更多 zram 算法?'[span_6](end_span)
         required: true
         type: boolean
         default: true
@@ -66,7 +66,7 @@ on:
         default: true
 
       cancel_susfs:
-        description: '取消 SUSFS'
+        [span_7](start_span)description: '取消 SUSFS'[span_7](end_span)
         required: true
         type: boolean
         default: false
@@ -81,184 +81,167 @@ jobs:
 
     steps:
       - name: 空间清理与环境准备
-        uses: AdityaGarg8/remove-unwanted-software@v5
+        [span_8](start_span)uses: AdityaGarg8/remove-unwanted-software@v5[span_8](end_span)
         with:
-          remove-dotnet: 'true'
-          remove-android: 'true'
+          [span_9](start_span)remove-dotnet: 'true'[span_9](end_span)
+          [span_10](start_span)remove-android: 'true'[span_10](end_span)
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        [span_11](start_span)uses: actions/checkout@v4[span_11](end_span)
         
       - name: 解析 6.1 版本参数
         run: |
-          SELECTION="${{ inputs.tag_selection }}"
-          if [[ "$SELECTION" == "Manual Input" ]]; then
+          [span_12](start_span)SELECTION="${{ inputs.tag_selection }}"[span_12](end_span)
+          [span_13](start_span)if [[ "$SELECTION" == "Manual Input"* ]]; then[span_13](end_span)
             INPUT="${{ inputs.manual_version }}"
-            SUB_LEVEL=$(echo "$INPUT" | awk '{print $1}' | cut -d. -f3)
-            OS_PATCH=$(echo "$INPUT" | awk '{print $2}')
-            # 兼容手动输入中的修订号
-            REV=$(echo "$INPUT" | awk '{print $3:-r1}')
+            [span_14](start_span)SUB_LEVEL=$(echo "$INPUT" | awk '{print $1}' | cut -d. -f3)[span_14](end_span)
+            [span_15](start_span)OS_PATCH=$(echo "$INPUT" | awk '{print $2}')[span_15](end_span)
+            [span_16](start_span)REV=$(echo "$INPUT" | awk '{print $3:-r1}')[span_16](end_span)
           else
-            # 提取 6.1.xxx 中的 xxx
-            SUB_LEVEL=$(echo "$SELECTION" | awk -F' | ' '{print $1}' | cut -d. -f3)
-            # 提取日期
-            OS_PATCH=$(echo "$SELECTION" | cut -d'|' -f2 | xargs)
-            REV="r1"
+            [span_17](start_span)SUB_LEVEL=$(echo "$SELECTION" | awk -F' | ' '{print $1}' | cut -d. -f3)[span_17](end_span)
+            [span_18](start_span)OS_PATCH=$(echo "$SELECTION" | cut -d'|' -f2 | xargs)[span_18](end_span)
+            [span_19](start_span)REV="r1"[span_19](end_span)
           fi
           
-          # 处理 LTS 的特殊情况
-          if [[ "$SUB_LEVEL" == "X" ]]; then
-             MANIFEST_BRANCH="common-android14-6.1-lts"
+          # 分支选择逻辑
+          if [[ "$OS_PATCH" == "lts" ]]; then
+            MANIFEST_BRANCH="common-android14-6.1-lts"
           else
-             # 如果补丁日期不是 lts，则构建标准分支名
-             if [[ "$OS_PATCH" == "lts" ]]; then
-                MANIFEST_BRANCH="common-android14-6.1-lts"
-             else
-                MANIFEST_BRANCH="common-android14-6.1-$OS_PATCH"
-             fi
+            MANIFEST_BRANCH="common-android14-6.1-$OS_PATCH"
           fi
 
-          echo "SUB_LEVEL=$SUB_LEVEL" >> $GITHUB_ENV
-          echo "OS_PATCH_LEVEL=$OS_PATCH" >> $GITHUB_ENV
-          echo "REVISION=$REV" >> $GITHUB_ENV
+          [span_20](start_span)echo "SUB_LEVEL=$SUB_LEVEL" >> $GITHUB_ENV[span_20](end_span)
+          [span_21](start_span)echo "OS_PATCH_LEVEL=$OS_PATCH" >> $GITHUB_ENV[span_21](end_span)
           echo "MANIFEST_BRANCH=$MANIFEST_BRANCH" >> $GITHUB_ENV
-          echo "CONFIG=android14-6.1-$SUB_LEVEL" >> $GITHUB_ENV
+          [span_22](start_span)echo "CONFIG=android14-6.1-$SUB_LEVEL" >> $GITHUB_ENV[span_22](end_span)
 
-      - name: 下载 Repo 工具与补丁库
+      - name: 下载工具与补丁库
         run: |
-          mkdir -p ./git-repo
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
-          chmod a+rx ./git-repo/repo
-          echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV
+          [span_23](start_span)mkdir -p ./git-repo[span_23](end_span)
+          [span_24](start_span)curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo[span_24](end_span)
+          [span_25](start_span)chmod a+rx ./git-repo/repo[span_25](end_span)
+          [span_26](start_span)echo "REPO=$GITHUB_WORKSPACE/git-repo/repo" >> $GITHUB_ENV[span_26](end_span)
           
-          git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "gki-2.0"
-          git clone https://github.com/ShirkNeko/SukiSU_patch.git
-          git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch
+          [span_27](start_span)git clone https://github.com/WildPlusKernel/AnyKernel3.git -b "gki-2.0"[span_27](end_span)
+          [span_28](start_span)git clone https://github.com/ShirkNeko/SukiSU_patch.git[span_28](end_span)
+          [span_29](start_span)git clone https://github.com/zzh20188/GKI_KernelSU_SUSFS.git zzh_patch[span_29](end_span)
           
-          if [[ "${{ inputs.kernelsu_variant }}" == *"SukiSU"* ]]; then
-            git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-android14-6.1"
-          else
-            git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "gki-android14-6.1"
-          fi
+          # Android 14 6.1 专用 SUSFS 分支
+          [span_30](start_span)git clone https://github.com/ShirkNeko/susfs4ksu.git -b "gki-android14-6.1"[span_30](end_span)
 
-      - name: 同步 Android 14 6.1 源码
+      - name: 同步内核源码 (A14-6.1)
         run: |
-          mkdir -p "$CONFIG"
+          [span_31](start_span)mkdir -p "$CONFIG"[span_31](end_span)
           cd "$CONFIG"
-          # 使用解析出的分支同步
-          echo "正在同步分支: ${{ env.MANIFEST_BRANCH }}"
-          $REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b ${{ env.MANIFEST_BRANCH }}
-          $REPO sync -c -j$(nproc --all)
+          # [span_32](start_span)使用 --repo-rev=v2.16 提高 Android 14 环境下的同步成功率[span_32](end_span)
+          [span_33](start_span)$REPO init --depth=1 -u https://android.googlesource.com/kernel/manifest -b ${{ env.MANIFEST_BRANCH }} --repo-rev=v2.16[span_33](end_span)
+          [span_34](start_span)$REPO sync -c -j$(nproc --all) --force-sync --fail-fast[span_34](end_span)
 
       - name: 注入 KernelSU
         run: |
-          cd "$CONFIG"
+          [span_35](start_span)cd "$CONFIG"[span_35](end_span)
           case "${{ inputs.kernelsu_variant }}" in
-            "Official") URL="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;
-            "ReSukiSU") URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" ;;
-            "MKSU")     URL="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" ;;
-            "SukiSU")   URL="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" ;;
+            [span_36](start_span)"Official") URL="https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" ;;[span_36](end_span)
+            [span_37](start_span)"ReSukiSU") URL="https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" ;;[span_37](end_span)
+            [span_38](start_span)"MKSU")     URL="https://raw.githubusercontent.com/5ec1cff/KernelSU/main/kernel/setup.sh" ;;[span_38](end_span)
+            [span_39](start_span)"SukiSU")   URL="https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" ;;[span_39](end_span)
           esac
           
-          BR="${{ inputs.kernelsu_branch }}"
-          if [ "$BR" == "tmp-builtin" ]; then ARG="-s tmp-builtin"; 
-          elif [ "$BR" == "Stable(标准)" ]; then ARG="-s stable"; 
-          else ARG="-s main"; fi
+          [span_40](start_span)BR="${{ inputs.kernelsu_branch }}"[span_40](end_span)
+          [span_41](start_span)if [ "$BR" == "tmp-builtin" ]; then ARG="-s tmp-builtin";[span_41](end_span)
+          [span_42](start_span)elif [ "$BR" == "Stable(标准)" ]; then ARG="-s stable";[span_42](end_span)
+          [span_43](start_span)else ARG="-s main"; fi[span_43](end_span)
           
-          curl -LSs "$URL" | bash -s $ARG
+          [span_44](start_span)curl -LSs "$URL" | bash -s $ARG[span_44](end_span)
 
-      - name: 注入 SUSFS (6.1 通用补丁)
-        if: ${{ !inputs.cancel_susfs }}
+      - name: 注入 SUSFS (6.1 专用补丁)
+        [span_45](start_span)if: ${{ !inputs.cancel_susfs }}[span_45](end_span)
         run: |
-          cd "$CONFIG"
-          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/
-          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd common
-          patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch
+          [span_46](start_span)cd "$CONFIG"[span_46](end_span)
+          [span_47](start_span)cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android14-6.1.patch ./common/[span_47](end_span)
+          [span_48](start_span)cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/[span_48](end_span)
+          [span_49](start_span)cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/[span_49](end_span)
+          [span_50](start_span)cd common[span_50](end_span)
+          [span_51](start_span)patch -p1 < 50_add_susfs_in_gki-android14-6.1.patch[span_51](end_span)
 
-      - name: 注入 ZRAM 增强补丁
-        if: ${{ inputs.use_zram }}
+      - name: 注入 ZRAM 补丁
+        [span_52](start_span)if: ${{ inputs.use_zram }}[span_52](end_span)
         run: |
-          cd "$CONFIG/common"
-          cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/
-          cp -r ../../SukiSU_patch/other/zram/lz4k/lib/* ./lib/
-          cp -r ../../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/
-          cp -r ../../SukiSU_patch/other/zram/lz4k_oplus ./lib/
+          [span_53](start_span)cd "$CONFIG/common"[span_53](end_span)
+          [span_54](start_span)cp -r ../../SukiSU_patch/other/zram/lz4k/include/linux/* ./include/linux/[span_54](end_span)
+          [span_55](start_span)cp -r ../../SukiSU_patch/other/zram/lz4k/lib/* ./lib/[span_55](end_span)
+          [span_56](start_span)cp -r ../../SukiSU_patch/other/zram/lz4k/crypto/* ./crypto/[span_56](end_span)
+          [span_57](start_span)cp -r ../../SukiSU_patch/other/zram/lz4k_oplus ./lib/[span_57](end_span)
           
-          # 6.1 ZRAM 兼容性补丁
+          # 针对 6.1 的 LZ4 补丁应用 (zzh 库)
           if [ -f "../../zzh_patch/zram/6.1/lz4_1.10.0.patch" ]; then
-            patch -p1 -F 3 < ../../zzh_patch/zram/6.1/lz4_1.10.0.patch || true
+            [span_58](start_span)patch -p1 -F 3 < ../../zzh_patch/zram/6.1/lz4_1.10.0.patch || true[span_58](end_span)
           fi
 
-      - name: 配置 Defconfig (包含网络增强优化)
+      - name: 配置 Defconfig
         run: |
-          cd "$CONFIG"
-          DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
+          [span_59](start_span)cd "$CONFIG"[span_59](end_span)
+          [span_60](start_span)DEFCONFIG="common/arch/arm64/configs/gki_defconfig"[span_60](end_span)
           
-          echo "CONFIG_KSU=y" >> $DEFCONFIG
-          if [ "${{ inputs.cancel_susfs }}" == "false" ]; then
-             echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG
-             echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG
+          [span_61](start_span)echo "CONFIG_KSU=y" >> $DEFCONFIG[span_61](end_span)
+          [span_62](start_span)if [ "${{ inputs.cancel_susfs }}" == "false" ]; then[span_62](end_span)
+             [span_63](start_span)echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG[span_63](end_span)
+             [span_64](start_span)echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> $DEFCONFIG[span_64](end_span)
+             [span_65](start_span)echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> $DEFCONFIG[span_65](end_span)
           fi
 
           if [[ "${{ env.BETTER_NET }}" == "true" ]]; then
             echo "CONFIG_BPF_STREAM_PARSER=y" >> $DEFCONFIG
-            echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> $DEFCONFIG
             echo "CONFIG_NETFILTER_XT_SET=y" >> $DEFCONFIG
             echo "CONFIG_IP_SET=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_MAX=65534" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_BITMAP_IP=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_BITMAP_IPMAC=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_BITMAP_PORT=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IP=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IPMARK=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IPPORT=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IPPORTIP=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IPPORTNET=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_IPMAC=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_MAC=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_NETPORTNET=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_NET=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_NETNET=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_NETPORT=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> $DEFCONFIG
-            echo "CONFIG_IP_SET_LIST_SET=y" >> $DEFCONFIG
             echo "CONFIG_IP6_NF_NAT=y" >> $DEFCONFIG
-            echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> $DEFCONFIG
-            
             cd common
             wget https://github.com/cctv18/oppo_oplus_realme_sm8650/raw/refs/heads/main/other_patch/config.patch
             patch -p1 -F 3 < config.patch || true
             cd ..
           fi
 
-          if [ "${{ inputs.use_zram }}" == "true" ]; then
-             echo "CONFIG_ZSMALLOC=y" >> $DEFCONFIG
-             echo "CONFIG_ZRAM=y" >> $DEFCONFIG
-             echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> $DEFCONFIG
-             echo "CONFIG_CRYPTO_LZ4K=y" >> $DEFCONFIG
+          [span_66](start_span)if [ "${{ inputs.use_zram }}" == "true" ]; then[span_66](end_span)
+             [span_67](start_span)echo "CONFIG_ZSMALLOC=y" >> $DEFCONFIG[span_67](end_span)
+             [span_68](start_span)echo "CONFIG_ZRAM=y" >> $DEFCONFIG[span_68](end_span)
+             [span_69](start_span)echo "CONFIG_ZRAM_DEF_COMP_LZ4KD=y" >> $DEFCONFIG[span_69](end_span)
+             [span_70](start_span)echo "CONFIG_CRYPTO_LZ4K=y" >> $DEFCONFIG[span_70](end_span)
           fi
           
-          sed -i 's/check_defconfig//g' common/build.config.gki*
+          [span_71](start_span)sed -i 's/check_defconfig//g' common/build.config.gki*[span_71](end_span)
 
       - name: 编译内核 (A14 6.1)
         run: |
-          cd "$CONFIG"
+          [span_72](start_span)cd "$CONFIG"[span_72](end_span)
+          
+          # [span_73](start_span)核心修复：手动处理 A14 的 build 目录结构问题[span_73](end_span)
+          if [ ! -f "build/build.sh" ]; then
+            echo "正在修复构建目录结构..."
+            mkdir -p build
+            # [span_74](start_span)搜索 build.sh 的实际位置并创建软链接[span_74](end_span)
+            ACTUAL_BUILD_SH=$(find . -name "build.sh" | grep "build/kernel/build.sh" | head -n 1)
+            if [ -n "$ACTUAL_BUILD_SH" ]; then
+              ln -sf "../$ACTUAL_BUILD_SH" build/build.sh
+            fi
+          fi
+
+          # [span_75](start_span)禁用 DLKM 以防止 KMI 错误[span_75](end_span)
           sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+          
+          # [span_76](start_span)执行编译指令[span_76](end_span)
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 ./build/build.sh
 
       - name: 打包 AnyKernel3
         run: |
-           cd AnyKernel3
-           cp ../$CONFIG/out/android14-6.1/dist/Image ./
-           ZIP_NAME="GKI-A14-6.1-${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip"
-           zip -r "$ZIP_NAME" ./*
-           echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV
+           [span_77](start_span)cd AnyKernel3[span_77](end_span)
+           # [span_78](start_span)指向 A14 6.1 产物路径[span_78](end_span)
+           [span_79](start_span)cp ../$CONFIG/out/android14-6.1/dist/Image ./[span_79](end_span)
+           [span_80](start_span)ZIP_NAME="GKI-A14-6.1-${{ env.SUB_LEVEL }}-${{ env.OS_PATCH_LEVEL }}-${{ inputs.kernelsu_variant }}.zip"[span_80](end_span)
+           [span_81](start_span)zip -r "$ZIP_NAME" ./*[span_81](end_span)
+           [span_82](start_span)echo "ZIP_PATH=$GITHUB_WORKSPACE/AnyKernel3/$ZIP_NAME" >> $GITHUB_ENV[span_82](end_span)
 
       - name: 上传产物
-        uses: actions/upload-artifact@v4
+        [span_83](start_span)uses: actions/upload-artifact@v4[span_83](end_span)
         with:
-          name: Kernel_A14_6.1_Output
-          path: ${{ env.ZIP_PATH }}
+          [span_84](start_span)name: Kernel_A14_6.1_Output[span_84](end_span)
+          [span_85](start_span)path: ${{ env.ZIP_PATH }}[span_85](end_span)
