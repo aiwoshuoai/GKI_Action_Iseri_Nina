@@ -352,13 +352,14 @@ jobs:
       - name: 编译内核
         run: |
           cd "$CONFIG"
-          sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-          sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
-          sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
-          export CCACHE_DIR=$HOME/.ccache
-          export CCACHE_EXEC=/usr/bin/ccache
-          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh CC="/usr/bin/ccache clang"
-          ccache -s
+          # 关键命令：使用 kleaf 框架编译 aarch64 架构
+          # --config=fast 表示跳过部分耗时的校验和文档生成
+          tools/bazel build --config=fast //common:kernel_aarch64_dist
+          
+          # 产物移动至 dist 目录便于后续打包
+          # Bazel 默认输出路径较深，通常在 bazel-bin/common/kernel_aarch64/ 目录下
+          mkdir -p out/android14-6.1/dist
+          cp bazel-bin/common/kernel_aarch64/Image out/android14-6.1/dist/
 
       - name: KPM Patch & AnyKernel3
         run: |
